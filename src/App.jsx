@@ -13,10 +13,11 @@ import {
   Image as ImageIcon,
   Key,
   AlertCircle,
-  Type
+  Type,
+  Cpu // [新增] 引入 Cpu 圖示供模型選單使用
 } from 'lucide-react';
 
-// --- 自定義 Markdown 渲染器 ---
+// --- 自定義 Markdown 渲染器 (維持不變) ---
 const SimpleMarkdownRenderer = ({ content }) => {
   if (!content) return null;
 
@@ -24,15 +25,8 @@ const SimpleMarkdownRenderer = ({ content }) => {
   return (
     <div className="space-y-4 text-slate-300 leading-relaxed">
       {lines.map((line, index) => {
-        // H1 標題
-        if (line.startsWith('# ')) {
-          return <h1 key={index} className="text-3xl font-bold text-emerald-400 mt-6 mb-4">{line.replace('# ', '')}</h1>;
-        }
-        // H2 標題
-        if (line.startsWith('## ')) {
-          return <h2 key={index} className="text-xl font-semibold text-emerald-400 mt-4 mb-2 border-l-4 border-emerald-400 pl-3">{line.replace('## ', '')}</h2>;
-        }
-        // 粗體
+        if (line.startsWith('# ')) return <h1 key={index} className="text-3xl font-bold text-emerald-400 mt-6 mb-4">{line.replace('# ', '')}</h1>;
+        if (line.startsWith('## ')) return <h2 key={index} className="text-xl font-semibold text-emerald-400 mt-4 mb-2 border-l-4 border-emerald-400 pl-3">{line.replace('## ', '')}</h2>;
         if (line.includes('**')) {
           const parts = line.split('**');
           return (
@@ -41,13 +35,8 @@ const SimpleMarkdownRenderer = ({ content }) => {
             </p>
           );
         }
-        // 清單
-        if (line.startsWith('- ') || line.startsWith('* ')) {
-          return <li key={index} className="ml-5 list-disc">{line.substring(2)}</li>;
-        }
-        // 空行
+        if (line.startsWith('- ') || line.startsWith('* ')) return <li key={index} className="ml-5 list-disc">{line.substring(2)}</li>;
         if (line.trim() === '') return <div key={index} className="h-2" />;
-        
         return <p key={index}>{line}</p>;
       })}
     </div>
@@ -56,13 +45,15 @@ const SimpleMarkdownRenderer = ({ content }) => {
 
 export default function App() {
   // --- 狀態管理 ---
-  const [step, setStep] = useState('INPUT'); // INPUT | RESULT
+  const [step, setStep] = useState('INPUT'); 
   const [loading, setLoading] = useState(false);
   const [copiedId, setCopiedId] = useState(null);
   const [userApiKey, setUserApiKey] = useState(''); 
   const [errorMsg, setErrorMsg] = useState('');
   
-  // 初始資料預設值
+  // [新增] 管理使用者選擇的模型，預設使用最穩定的 2.5 Flash
+  const [selectedModel, setSelectedModel] = useState('gemini-2.5-flash'); 
+  
   const [formData, setFormData] = useState({
     productName: '極限燃脂蛋白粉',
     features: '低熱量、高吸收率、添加維生素B群、巧克力口味。',
@@ -76,17 +67,12 @@ export default function App() {
 
   const [result, setResult] = useState(null);
 
-  // --- 工具函式 ---
+  // --- 工具函式 (維持不變) ---
   const cleanJsonString = (str) => {
     try {
-      // 1. 提取 JSON 內容（處理 Markdown 代碼塊包裝）
       let jsonStr = str.match(/```json\n?([\s\S]*?)\n?```/) || str.match(/\{[\s\S]*\}/);
       jsonStr = jsonStr ? (jsonStr[1] || jsonStr[0]) : str;
-
-      // 2. 修正常見的 AI JSON 錯誤：移除陣列或物件末尾多餘的逗號 (Trailing commas)
-      // 這是修復 "Unexpected comma at the end of array expression" 的關鍵
       jsonStr = jsonStr.replace(/,\s*([\]}])/g, '$1');
-
       return jsonStr;
     } catch (e) {
       console.error("JSON 清理失敗:", e);
@@ -110,15 +96,15 @@ export default function App() {
   };
 
   // --- API 請求與指數退避機制 ---
+  // [修改] 將 url 內的模型型號改為動態變數 ${selectedModel}
   const generateWithRetry = async (prompt, retryCount = 0) => {
-    const apiKey = ""; // 執行環境提供的金鑰
-    const finalKey = apiKey || userApiKey;
+    const finalKey = userApiKey.trim();
     
     if (!finalKey) {
       throw new Error("請提供有效的 API 金鑰。");
     }
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${finalKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent?key=${finalKey}`;
 
     try {
       const response = await fetch(url, {
@@ -130,9 +116,7 @@ export default function App() {
       });
 
       if (!response.ok) {
-        if (response.status >= 500 && retryCount < 5) {
-          throw new Error('Server Error');
-        }
+        if (response.status >= 500 && retryCount < 5) throw new Error('Server Error');
         const errData = await response.json();
         throw new Error(errData.error?.message || "請求失敗");
       }
@@ -209,7 +193,7 @@ export default function App() {
           </div>
           <div>
             <h1 className="text-2xl font-bold tracking-tight">AI 行銷文案產生器</h1>
-            <p className="text-slate-400 text-sm">由 Gemini 2.5 Flash 驅動的自動化資產包</p>
+            <p className="text-slate-400 text-sm">自動化行銷資產包</p>
           </div>
         </header>
 
@@ -223,6 +207,7 @@ export default function App() {
         {step === 'INPUT' ? (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div className="lg:col-span-2 space-y-6">
+              {/* 核心資訊區塊 (維持不變) */}
               <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl">
                 <div className="flex items-center gap-2 mb-4 text-cyan-400">
                   <Target size={20} />
@@ -285,21 +270,43 @@ export default function App() {
                 </div>
               </div>
 
+              {/* [重構] API 與模型設定區塊 */}
               <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl">
                 <div className="flex items-center gap-2 mb-4 text-yellow-400">
                   <Key size={20} />
-                  <h2 className="font-semibold text-lg">API 設定</h2>
+                  <h2 className="font-semibold text-lg">API 與環境設定</h2>
                 </div>
-                <input 
-                  type="password" 
-                  placeholder="在此貼上您的 Gemini API Key"
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 focus:outline-none focus:border-yellow-500 transition-colors"
-                  value={userApiKey}
-                  onChange={e => setUserApiKey(e.target.value)}
-                />
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm text-slate-400 mb-1">Gemini API Key</label>
+                    <input 
+                      type="password" 
+                      placeholder="在此貼上您的 API Key"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 focus:outline-none focus:border-yellow-500 transition-colors"
+                      value={userApiKey}
+                      onChange={e => setUserApiKey(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-slate-400 mb-1 flex items-center gap-1">
+                      <Cpu size={14} className="text-yellow-400" />
+                      驅動模型 (Model)
+                    </label>
+                    <select
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 focus:outline-none focus:border-yellow-500 transition-colors text-slate-200"
+                      value={selectedModel}
+                      onChange={e => setSelectedModel(e.target.value)}
+                    >
+                      <option value="gemini-2.5-flash">Gemini 2.5 Flash (穩定首選，能力全面)</option>
+                      <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite (極速輕量，最省成本)</option>
+                      <option value="gemini-3-flash-preview">Gemini 3 Flash Preview (最新技術，預覽版)</option>
+                    </select>
+                  </div>
+                </div>
               </div>
             </div>
 
+            {/* 品牌人格區塊 (維持不變) */}
             <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl">
               <div className="flex items-center gap-2 mb-4 text-emerald-400">
                 <User size={20} />
@@ -345,6 +352,7 @@ export default function App() {
             </div>
           </div>
         ) : (
+          /* RESULT 區塊 (完全不變) */
           <div className="space-y-8 animate-in fade-in duration-500">
             <section className="bg-slate-800 rounded-2xl border border-slate-700 shadow-2xl overflow-hidden">
               <div className="bg-emerald-900/30 px-6 py-4 border-b border-slate-700 flex justify-between items-center">
